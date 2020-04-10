@@ -24,7 +24,7 @@ public class RedirectController {
     @RequestMapping("/{shortKey}")
     public void doRedirect(@PathVariable String shortKey, HttpServletResponse response) {
         Redirection redirection = shortener.resolve(shortKey);
-        response.setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
+        response.setStatus(HttpServletResponse.SC_MOVED_PERMANENTLY);
         response.setHeader("Location", redirection.getLongUrl());
     }
 

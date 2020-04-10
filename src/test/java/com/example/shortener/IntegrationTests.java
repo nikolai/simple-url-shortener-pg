@@ -2,6 +2,7 @@ package com.example.shortener;
 
 import com.example.shortener.messages.CreateRedirectRequest;
 import com.example.shortener.messages.CreateRedirectResponse;
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.springframework.http.HttpEntity;
@@ -16,6 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.output.OutputFrame;
 import org.testcontainers.containers.output.ToStringConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.ResourceReaper;
 
 import javax.servlet.http.HttpServletResponse;
 import java.net.HttpURLConnection;
@@ -24,6 +26,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 import static org.hamcrest.CoreMatchers.is;
@@ -51,6 +54,20 @@ public class IntegrationTests {
             .withNetwork(network)
             .withNetworkAliases(MYDB_HOSTNAME);
 
+    int hostRandomPort = ThreadLocalRandom.current().nextInt(10000, 60000);
+
+    @Rule
+    public GenericContainer app = new FixedHostPortGenericContainer("me/shortener")
+            .withFixedExposedPort(hostRandomPort, 8080)
+            .withEnv("spring_datasource_url", "jdbc:postgresql://" + MYDB_HOSTNAME + ":5432/postgres")
+            .withEnv("spring_datasource_username", postgresContainer.getUsername())
+            .withEnv("spring_datasource_password", postgresContainer.getPassword())
+            .withEnv("server_port", "8080")
+            .withEnv("short_url_context", "http://localhost:" + hostRandomPort)
+            .withNetwork(network)
+            .waitingFor(Wait.forHttp("/heartbeat"));
+
+
     @Test
     public void test_a_db_available() throws SQLException {
         String jdbcUrl = postgresContainer.getJdbcUrl();
@@ -64,49 +81,39 @@ public class IntegrationTests {
     }
 
     @Test
-    public void test_create() {
+    public void test_create_n_redirect() {
+        CreateRedirectRequest createReq = new CreateRedirectRequest(HTTP_YANDEX_RU);
 
-        int hostRandomPort = 8888; //ThreadLocalRandom.current().nextInt(10000, 60000);
-
-        GenericContainer app = new FixedHostPortGenericContainer("me/shortener")
-                .withFixedExposedPort(hostRandomPort, 8080)
-                .withEnv("spring_datasource_url", "jdbc:postgresql://"+ MYDB_HOSTNAME +":5432/postgres")
-                .withEnv("spring_datasource_username", postgresContainer.getUsername())
-                .withEnv("spring_datasource_password", postgresContainer.getPassword())
-                .withEnv("server_port", "8080")
-                .withEnv("short_url_context", "http://localhost:"+hostRandomPort)
-                .withNetwork(network)
-//                .withLogConsumer(new LogConsumer())
-                .waitingFor(Wait.forHttp("/heartbeat"))
-                .withExposedPorts(8080)
-                ;
-
-        app.start();
-
-        CreateRedirectRequest req = new CreateRedirectRequest();
-        req.setLongUrl(HTTP_YANDEX_RU);
-
-        HttpEntity<CreateRedirectRequest> request = new HttpEntity<>(req);
+        HttpEntity<CreateRedirectRequest> request = new HttpEntity<>(createReq);
         String uri = "http://localhost:" + app.getMappedPort(8080) + "/create";
         CreateRedirectResponse response = restTemplate.postForObject(uri, request, CreateRedirectResponse.class);
 
+        assertThat(response, notNullValue());
         assertThat(response.getShortUrl(), notNullValue());
 
-        System.out.println(response.getShortUrl());
-
-
         ResponseEntity<Object> httpResp = restTemplate2.exchange(response.getShortUrl(), HttpMethod.GET, null, Object.class);
-        int statusCode = httpResp.getStatusCodeValue();
-        String location = httpResp.getHeaders().getLocation() == null ? "" : httpResp.getHeaders().getLocation().toString();
-        assertThat(statusCode, is(HttpServletResponse.SC_MOVED_TEMPORARILY));
-        assertThat(location, is("http://yandex.ru"));
+        assertThat(httpResp.getStatusCodeValue(), is(HttpServletResponse.SC_MOVED_PERMANENTLY));
+        assertThat(httpResp.getHeaders().getLocation() + "", is("http://yandex.ru"));
     }
 
-    private class LogConsumer extends ToStringConsumer {
-        @Override
-        public void accept(OutputFrame outputFrame) {
-            if (outputFrame != null && outputFrame.getBytes() != null)
-            log.info(new String(outputFrame.getBytes(), Charset.forName("UTF-8")));
+    @Test
+    public void test_disconnecting_db() {
+        test_create_n_redirect();
+
+        postgresContainer.getDockerClient().stopContainerCmd(postgresContainer.getContainerId()).exec();
+        try {
+            test_create_n_redirect();
+            Assert.fail("request should fail while db is down");
+        } catch (Exception e) {
+            System.out.println("ok for failing this time: " + e);
         }
+        postgresContainer.getDockerClient().startContainerCmd(postgresContainer.getContainerId()).exec();
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        test_create_n_redirect();
     }
+
 }
