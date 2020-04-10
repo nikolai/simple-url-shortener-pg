@@ -108,11 +108,6 @@ public class IntegrationTests {
             System.out.println("ok for failing this time: " + e);
         }
         postgresContainer.getDockerClient().startContainerCmd(postgresContainer.getContainerId()).exec();
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
         test_create_n_redirect();
     }
 
