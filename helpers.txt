@@ -1,4 +1,5 @@
 docker run --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:12
 mvn package
+mvn package -DskipTests
 docker build -t me/shortener .
 docker run --rm --name app -p8080:8080 -e spring_datasource_url=jdbc:postgresql://192.168.1.2:5432/postgres me/shortener

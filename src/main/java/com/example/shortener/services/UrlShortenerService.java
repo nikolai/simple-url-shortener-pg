@@ -20,20 +20,14 @@ public class UrlShortenerService {
     @Value("${shortKeySize}")
     private Integer shortKeySize = 3;
 
-    @Value("${application.domain}")
-    private String appDomain = "localhost";
-
-    @Value("${application.protocol}")
-    private String protocol = "http";
-
-    @Value("${server.port}")
-    private String serverPort;
+    @Value("${short.url.context}")
+    private String shortUrlContext;
 
     public String shorten(String longUrl) {
         String shortKey = gen.generateKey(shortKeySize);
         Redirection redirection = new Redirection(longUrl, shortKey);
         repo.save(redirection);
-        return protocol + "://" + appDomain + ":" + serverPort + "/" + shortKey;
+        return shortUrlContext + "/" + shortKey;
     }
 
     public Redirection resolve(String shortKey) throws RedirectionNotFoundException {
